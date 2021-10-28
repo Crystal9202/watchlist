@@ -6,8 +6,7 @@ from flask import Flask ,render_template
 from flask import url_for ,request ,redirect , flash
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_login import LoginManager ,UserMixin ,current_user ,login_user ,login_required
-
+from flask_login import LoginManager ,UserMixin ,current_user ,login_user ,login_required ,logout_user
 
 # SQLite URI compatibal
 
@@ -19,9 +18,10 @@ else:
 
 
 app=Flask(__name__)
+app.config['SECRET_KEY'] = 'dev'
 app.config['SQLALCHEMY_DATABASE_URI'] = prefix +os.path.join(app.root_path, 'data.db')
-app.config['SQLALCHEMY_TRUCK_MODIFICATIONS'] = False 
-app.config['SECRET_KEY'] = 'dev' 
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False 
+ 
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -91,6 +91,7 @@ def admin(username,password):
         user = User(username=username , name = 'Admin')
         user.set_password(password)
         db.session.add(user)
+
     db.session.commit()
     click.echo('Done.')
 
@@ -138,11 +139,16 @@ def internal_server_error(e):
 @app.route('/' ,methods=['GET' ,"POST"])
 def index():
     if request.method == "POST":
-        title = request.form.get('title')
-        year = request.form.get('year')
+        if not current_user.is_authenticated:
+            return redirect(url_for('index'))
+
+        title = request.form['title']
+        year = request.form['year']
+
         if not title or not year or len(year) > 4 or len(title) > 60 :
             flash("Invalid input")
             return redirect(url_for("index"))
+
         movie=Movie(title=title , year=year)
         db.session.add(movie)
         db.session.commit()
@@ -154,6 +160,7 @@ def index():
 
 
 @app.route('/movie/edit/<int:movie_id>' , methods=["GET","POST"]) 
+@login_required
 def edit(movie_id):
     movie = Movie.query.get_or_404(movie_id)
 
@@ -176,12 +183,31 @@ def edit(movie_id):
 
 
 @app.route('/movie/delete/<int:movie_id>' ,methods=["GET","POST"])
+@login_required
 def delete(movie_id):
     movie = Movie.query.get_or_404(movie_id)
     db.session.delete(movie)
     db.session.commit()
     flash("Item deleted")
     return redirect(url_for('index'))
+
+@app.route('/settings' , methods=['GET','POST'])
+@login_required
+def settings():
+    if request.method == "POST" :
+        name = request.form['name']
+    
+        if not name or len(name) > 20 :
+            flash('Invalid input.')
+            return redirect(url_for('setting'))
+
+        user=User.query.first()
+        user.name=name
+        db.session.commit()
+        flash('Setting updated.')
+        return redirect(url_for('index'))
+
+    return render_template('settings.html')    
 
 
 
@@ -207,3 +233,11 @@ def login():
         return redirect(url_for('login'))
 
     return render_template('login.html')
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('Goodbye')
+    return redirect(url_for('index'))
